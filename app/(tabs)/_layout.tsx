@@ -20,11 +20,11 @@ export default function TabLayout() {
       >
 
       <Tabs.Screen
-        name="index"
+        name="app"
         options={{
-          title: 'Home',
+          title: 'Map',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'home-sharp' : 'home-outline'} color={color} size={24} />
+            <Ionicons name={focused ? 'map-sharp' : 'map-outline'} color={color} size={24} />
           ),
         }}
       />
