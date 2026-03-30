@@ -1,6 +1,8 @@
 import React, {useState} from 'react';
 import MapView, {Marker} from 'react-native-maps';
 import {View, StyleSheet, TouchableOpacity, Text, Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import {globalStore} from '../_layout';
 
 interface MarkerType {
   id: number;
@@ -10,10 +12,11 @@ interface MarkerType {
   };
   title: string;
   description: string;
+  imageUri?: string;
 }
 
 export default function App() {
-  const [markers, setMarkers] = useState<MarkerType[]>([]);
+  const [markers, setMarkers] = useState<MarkerType[]>(globalStore.markers);
 
   const handleMapPress = (event: any) => {
     const { latitude, longitude } = event.nativeEvent.coordinate;
@@ -23,11 +26,35 @@ export default function App() {
       title: `Метка ${markers.length + 1}`,
       description: `Координаты: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
     };
-    setMarkers([...markers, newMarker]);
+    updateMarkers([...markers, newMarker]);
+  };
+
+  // Добавить функцию выбора изображения
+  const pickImage = async (markerId: number) => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 1,
+    });
+
+    if (!result.canceled) {
+    const updatedMarkers = markers.map(marker => 
+      marker.id === markerId 
+        ? { ...marker, imageUri: result.assets[0].uri }
+        : marker
+
+        );
+      updateMarkers(updatedMarkers);
+    }
+  };
+
+const updateMarkers = (newMarkers: MarkerType[]) => {
+  setMarkers(newMarkers);
+  if (globalStore.setMarkers) globalStore.setMarkers(newMarkers);
   };
 
   const clearMarkers = () => {
-    setMarkers([]);
+    updateMarkers([]);
     Alert.alert('Очищено', 'Все маркеры удалены');
   };
 
@@ -36,8 +63,8 @@ export default function App() {
       <MapView 
         style={styles.map} 
         initialRegion={{
-          latitude: 37.78825,
-          longitude: -122.4324,
+          latitude: 58.0139,
+          longitude: 56.2211,
           latitudeDelta: 0.0922,
           longitudeDelta: 0.0421,
         }}
@@ -51,6 +78,7 @@ export default function App() {
             description={marker.description}
             pinColor="red"
             draggable
+            onPress={() => pickImage(marker.id)}
             onDragEnd={(e) => {
               const updatedMarkers = markers.map(m => {
                 if (m.id === marker.id) {
@@ -62,7 +90,7 @@ export default function App() {
                 }
                 return m;
               });
-              setMarkers(updatedMarkers);
+              updateMarkers(updatedMarkers);
             }}
           />
         ))}
