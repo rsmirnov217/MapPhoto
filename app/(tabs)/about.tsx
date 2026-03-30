@@ -15,7 +15,6 @@ export default function AboutScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Список маркеров с фото</Text>
       <FlatList
         data={markers}
         keyExtractor={(item) => item.id.toString()}

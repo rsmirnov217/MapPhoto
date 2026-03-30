@@ -22,18 +22,18 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: 'Карта',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'home-sharp' : 'home-outline'} color={color} size={24} />
+            <Ionicons name={focused ? 'map-sharp' : 'map-outline'} color={color} size={24} />
           ),
         }}
       />
       <Tabs.Screen
         name="about"
         options={{
-          title: 'About',
+          title: 'Список маркеров',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'information-circle' : 'information-circle-outline'} color={color} size={24}/>
+            <Ionicons name={focused ? 'list-circle' : 'list-circle-outline'} color={color} size={24}/>
           ),
         }}
       />
