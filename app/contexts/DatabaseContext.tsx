@@ -10,8 +10,8 @@ import {
   updateMarker as updateMarkerOp,
 } from '../database/operations';
 import {
-  getDatabase,
-  initDatabaseTables,
+  checkAndMigrate,
+  getDatabase
 } from '../database/schema';
 import { DatabaseContextType, MarkerImages, Markers } from '../types';
 
@@ -35,14 +35,11 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const initDatabase = async (): Promise<void> => {
     try {
       const database = getDatabase();
-      const targetVersion = 1; // Текущая версия схемы
+      checkAndMigrate(database); // Текущая версия схемы
       setIsReady(true);
-      
-        // Первая инициализация
-        initDatabaseTables(database);
-      
       setDb(database);
       setError(null);
+      console.log('База данных готова к работе');
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Ошибка инициализации базы данных');
       setError(error);

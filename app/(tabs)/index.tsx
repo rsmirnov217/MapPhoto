@@ -19,7 +19,7 @@ interface MarkerType {
 export default function App() {
   const [markers, setMarkers] = useState<MarkerType[]>(globalStore.markers);
 
-  const { addMarker, deleteMarker, getMarkers, addImage, getMarkerImages, isLoading, isReady } = useDatabase();
+  const { addMarker, deleteMarker, getMarkers, addImage, getMarkerImages, isLoading, isReady, deleteImage } = useDatabase();
 
   useEffect(() => {
       if (isReady && !isLoading) {
@@ -73,29 +73,140 @@ export default function App() {
 
   };
 
-  // Добавить функцию выбора изображения
-  const pickImage = async (markerId: number) => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      quality: 1,
-    });
-
-    if (!result.canceled) {
-      try{
-        await addImage(markerId, result.assets[0].uri);
-        const updatedMarkers = markers.map(markers =>
-          markers.id === markerId
-          ? {...markers, imageUri: result.assets[0].uri}
-          : markers
-        );
-      updateMarkers(updatedMarkers);
-      Alert.alert('Успех', 'Изображение добавлено');
-      }catch(error) {
-        Alert.alert('Ошибка', 'Не удалось сохранить изображение');
+  const deleteImageFromMarker = async (markerId: number) => {
+    try {
+      const images = await getMarkerImages(markerId);
+      if (images.length === 0) {
+        Alert.alert('Информация', 'У этого маркера нет изображений');
+        return;
       }
+      
+      await deleteImage(images[0].id);
+      
+      const updatedMarkers = markers.map(marker =>
+        marker.id === markerId
+          ? { ...marker, imageUri: undefined }
+          : marker
+      );
+      updateMarkers(updatedMarkers);
+      Alert.alert('Успех', 'Изображение удалено');
+    } catch (error) {
+      Alert.alert('Ошибка', 'Не удалось удалить изображение');
+      console.error(error);
     }
   };
+
+  const deleteSingleMarker = async (markerId: number) => {
+  Alert.alert(
+    'Подтверждение удаления',
+    'Вы уверены, что хотите удалить этот маркер? Это действие нельзя отменить.',
+    [
+      {
+        text: 'Да, удалить',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteMarker(markerId);
+            const updatedMarkers = markers.filter(m => m.id !== markerId);
+            updateMarkers(updatedMarkers);
+            Alert.alert('Успех', 'Маркер удален');
+          } catch (error) {
+            Alert.alert('Ошибка', 'Не удалось удалить маркер');
+            console.error(error);
+          }
+        }
+      },
+      {
+        text: 'Отмена',
+        style: 'cancel'
+      }
+    ]
+  );
+};
+
+const handleMarkerPress = async (markerId: number) => {
+  const marker = markers.find(m => m.id === markerId);
+  
+  if (marker?.imageUri) {
+    // Есть изображение
+    Alert.alert(
+      'Действия с маркером',
+      `Маркер ${marker?.id}\n${marker?.description}`,
+      [
+        {
+          text: 'Удалить маркер',
+          style: 'destructive' as const,
+          onPress: () => deleteSingleMarker(markerId)
+        },
+        {
+          text: 'Удалить изображение',
+          style: 'destructive' as const,
+          onPress: () => deleteImageFromMarker(markerId)
+        },
+        {
+          text: 'Изменить изображение',
+          onPress: () => pickImage(markerId)
+        },
+        {
+          text: 'Отмена',
+          style: 'cancel' as const
+        }
+      ]
+    );
+  } else {
+    // Нет изображения
+    Alert.alert(
+      'Действия с маркером',
+      `Маркер ${marker?.id}\n${marker?.description}`,
+      [
+        {
+          text: 'Удалить маркер',
+          style: 'destructive' as const,
+          onPress: () => deleteSingleMarker(markerId)
+        },
+        {
+          text: 'Добавить изображение',
+          onPress: () => pickImage(markerId)
+        },
+        {
+          text: 'Отмена',
+          style: 'cancel' as const
+        }
+      ]
+    );
+  }
+};
+
+  // Добавить функцию выбора изображения
+const pickImage = async (markerId: number) => {
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true,
+    quality: 1,
+  });
+
+  if (!result.canceled) {
+    try {
+      // Сначала удаляем старое изображение, если есть
+      const images = await getMarkerImages(markerId);
+      if (images.length > 0) {
+        await deleteImage(images[0].id);
+      }
+      
+      // Добавляем новое изображение
+      await addImage(markerId, result.assets[0].uri);
+      const updatedMarkers = markers.map(marker =>
+        marker.id === markerId
+          ? { ...marker, imageUri: result.assets[0].uri }
+          : marker
+      );
+      updateMarkers(updatedMarkers);
+      Alert.alert('Успех', 'Изображение обновлено');
+    } catch(error) {
+      Alert.alert('Ошибка', 'Не удалось сохранить изображение');
+    }
+  }
+};
 
 //Установить новый маркер
 const updateMarkers = (newMarkers: MarkerType[]) => {
@@ -144,8 +255,9 @@ const clearMarkers = async () => {
             description={marker.description}
             pinColor="red"
             draggable
-            onPress={() => pickImage(marker.id)}
+            onPress={() => handleMarkerPress(marker.id)}
             onDragEnd={ async (e) => {
+              e.persist();
               try {
                 await addMarker(e.nativeEvent.coordinate.latitude, e.nativeEvent.coordinate.longitude);
                 await deleteMarker(marker.id);
