@@ -1,5 +1,5 @@
-import { Text, View, StyleSheet, FlatList, Image } from 'react-native';
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { FlatList, Image, StyleSheet, Text, View } from 'react-native';
 import { globalStore } from '../_layout';
 
 export default function AboutScreen() {

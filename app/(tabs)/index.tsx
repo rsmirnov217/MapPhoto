@@ -1,8 +1,9 @@
-import React, {useState} from 'react';
-import MapView, {Marker} from 'react-native-maps';
-import {View, StyleSheet, TouchableOpacity, Text, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import {globalStore} from '../_layout';
+import React, { useEffect, useState } from 'react';
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
+import { globalStore } from '../_layout';
+import { useDatabase } from '../contexts/DatabaseContext';
 
 interface MarkerType {
   id: number;
@@ -18,15 +19,58 @@ interface MarkerType {
 export default function App() {
   const [markers, setMarkers] = useState<MarkerType[]>(globalStore.markers);
 
-  const handleMapPress = (event: any) => {
+  const { addMarker, deleteMarker, getMarkers, addImage, getMarkerImages, isLoading, isReady } = useDatabase();
+
+  useEffect(() => {
+      if (isReady && !isLoading) {
+      loadMarkersFromDatabase();
+    }
+  }, [isReady, isLoading]);
+
+  const loadMarkersFromDatabase = async () => {
+    try {
+      const dbMarkers = await getMarkers();
+      console.log('Загружено маркеров из БД:', dbMarkers.length);
+      const convertedMarkers: MarkerType[] = await Promise.all(
+        dbMarkers.map(async (dbMarker) => {
+          const images = await getMarkerImages(dbMarker.id);
+          return {
+            id: dbMarker.id,
+            coordinate: {
+              latitude: dbMarker.latitude,
+              longitude: dbMarker.longitude,
+            },
+            title: `Метка ${dbMarker.id}`,
+            description: `Координаты: ${dbMarker.latitude.toFixed(4)}, ${dbMarker.longitude.toFixed(4)}`,
+            imageUri: images[0]?.uri,
+          };
+        })
+      );
+      setMarkers(convertedMarkers);
+      if (globalStore.setMarkers) globalStore.setMarkers(convertedMarkers);
+    } catch (error) {
+      console.error('Ошибка загрузки маркеров:', error);
+    }
+  };
+
+//Обработка нажатия на карту
+  const handleMapPress = async (event: any) => {
     const { latitude, longitude } = event.nativeEvent.coordinate;
-    const newMarker: MarkerType = {
-      id: Date.now(),
-      coordinate: { latitude, longitude },
-      title: `Метка ${markers.length + 1}`,
-      description: `Координаты: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
-    };
-    updateMarkers([...markers, newMarker]);
+
+    try {
+      // Сохраняем маркер в БД
+      const markerId = await addMarker(latitude, longitude);
+      const newMarker: MarkerType = {
+        id: markerId,
+        coordinate: { latitude, longitude },
+        title: `Метка ${markers.length + 1}`,
+        description: `Координаты: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+      };
+      updateMarkers([...markers, newMarker]);
+    }catch(error){
+      Alert.alert('Ошибка, не удалось сохранить маркер');
+    }
+
   };
 
   // Добавить функцию выбора изображения
@@ -38,25 +82,47 @@ export default function App() {
     });
 
     if (!result.canceled) {
-    const updatedMarkers = markers.map(marker => 
-      marker.id === markerId 
-        ? { ...marker, imageUri: result.assets[0].uri }
-        : marker
-
+      try{
+        await addImage(markerId, result.assets[0].uri);
+        const updatedMarkers = markers.map(markers =>
+          markers.id === markerId
+          ? {...markers, imageUri: result.assets[0].uri}
+          : markers
         );
       updateMarkers(updatedMarkers);
+      Alert.alert('Успех', 'Изображение добавлено');
+      }catch(error) {
+        Alert.alert('Ошибка', 'Не удалось сохранить изображение');
+      }
     }
   };
 
+//Установить новый маркер
 const updateMarkers = (newMarkers: MarkerType[]) => {
   setMarkers(newMarkers);
   if (globalStore.setMarkers) globalStore.setMarkers(newMarkers);
   };
-
-  const clearMarkers = () => {
-    updateMarkers([]);
-    Alert.alert('Очищено', 'Все маркеры удалены');
+//Удалить все маркеры
+const clearMarkers = async () => {
+    try {
+      // Удаляем все маркеры из БД
+      for (const marker of markers) {
+        await deleteMarker(marker.id);
+      }
+      updateMarkers([]);
+      Alert.alert('Очищено', 'Все маркеры удалены');
+    } catch (error) {
+      Alert.alert('Ошибка', 'Не удалось удалить маркеры');
+    }
   };
+
+  if (isLoading || !isReady) {
+    return (
+      <View style={styles.container}>
+        <Text style={{ textAlign: 'center', marginTop: 50 }}>Загрузка базы данных...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -79,18 +145,25 @@ const updateMarkers = (newMarkers: MarkerType[]) => {
             pinColor="red"
             draggable
             onPress={() => pickImage(marker.id)}
-            onDragEnd={(e) => {
-              const updatedMarkers = markers.map(m => {
-                if (m.id === marker.id) {
-                  return {
-                    ...m,
-                    coordinate: e.nativeEvent.coordinate,
-                    description: `Координаты: ${e.nativeEvent.coordinate.latitude.toFixed(4)}, ${e.nativeEvent.coordinate.longitude.toFixed(4)}`,
-                  };
-                }
-                return m;
-              });
-              updateMarkers(updatedMarkers);
+            onDragEnd={ async (e) => {
+              try {
+                await addMarker(e.nativeEvent.coordinate.latitude, e.nativeEvent.coordinate.longitude);
+                await deleteMarker(marker.id);
+                
+                const updatedMarkers = markers.map(m => {
+                  if (m.id === marker.id) {
+                    return {
+                      ...m,
+                      coordinate: e.nativeEvent.coordinate,
+                      description: `Координаты: ${e.nativeEvent.coordinate.latitude.toFixed(4)}, ${e.nativeEvent.coordinate.longitude.toFixed(4)}`,
+                    };
+                  }
+                  return m;
+                });
+                updateMarkers(updatedMarkers);
+              } catch (error) {
+                Alert.alert('Ошибка', 'Не удалось обновить координаты');
+              }
             }}
           />
         ))}
