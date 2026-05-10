@@ -1,5 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
-import React, { useEffect, useState } from 'react';
+import * as Location from 'expo-location';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { globalStore } from '../_layout';
@@ -16,15 +17,42 @@ interface MarkerType {
   imageUri?: string;
 }
 
+interface LocationState {
+  location: Location.LocationObject | null;
+  errorMsg: string | null;
+  isTracking: boolean;
+}
+
 export default function App() {
   const [markers, setMarkers] = useState<MarkerType[]>(globalStore.markers);
+
+  const [locationState, setLocationState] = useState<LocationState>({
+    location: null,
+    errorMsg: null,
+    isTracking: false,
+  });
+  const [region, setRegion] = useState<Region>({
+    latitude: 58.0139,
+    longitude: 56.2211,
+    latitudeDelta: 0.0922,
+    longitudeDelta: 0.0421,
+  });
+
+  const locationSubscription = useRef<Location.LocationSubscription | null>(null);
+  const mapRef = useRef<MapView>(null);
 
   const { addMarker, deleteMarker, getMarkers, addImage, getMarkerImages, isLoading, isReady, deleteImage } = useDatabase();
 
   useEffect(() => {
       if (isReady && !isLoading) {
       loadMarkersFromDatabase();
+      requestLocationPermissionsAndStartTracking()
     }
+    return () => {
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+      }
+    };
   }, [isReady, isLoading]);
 
   const loadMarkersFromDatabase = async () => {
@@ -50,6 +78,106 @@ export default function App() {
       if (globalStore.setMarkers) globalStore.setMarkers(convertedMarkers);
     } catch (error) {
       console.error('Ошибка загрузки маркеров:', error);
+    }
+  };
+
+    // Запрос разрешений на местоположение
+  const requestLocationPermissionsAndStartTracking = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLocationState(prev => ({
+          ...prev,
+          errorMsg: 'Доступ к местоположению не разрешён. Некоторые функции могут быть недоступны.'
+        }));
+        return;
+      }
+      
+      // Получаем текущее местоположение
+      const currentLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      
+      setLocationState(prev => ({
+        ...prev,
+        location: currentLocation,
+        errorMsg: null,
+      }));
+      
+      // Центрируем карту на текущем местоположении
+      const newRegion = {
+        latitude: currentLocation.coords.latitude,
+        longitude: currentLocation.coords.longitude,
+        latitudeDelta: 0.0922,
+        longitudeDelta: 0.0421,
+      };
+      setRegion(newRegion);
+      mapRef.current?.animateToRegion(newRegion, 1000);
+      
+      // Запускаем отслеживание в реальном времени
+      await startLocationUpdates();
+      
+    } catch (error) {
+      console.error('Ошибка получения местоположения:', error);
+      setLocationState(prev => ({
+        ...prev,
+        errorMsg: 'Не удалось получить ваше местоположение. Проверьте настройки GPS.'
+      }));
+    }
+  };
+
+    // Запуск отслеживания местоположения
+  const startLocationUpdates = async () => {
+    try {
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+      }
+      
+      locationSubscription.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 5000,      // Обновление каждые 5 секунд
+          distanceInterval: 5,     // Или при перемещении на 5 метров
+        },
+        (newLocation) => {
+          setLocationState(prev => ({
+            ...prev,
+            location: newLocation,
+            isTracking: true,
+          }));
+          
+        }
+      );
+      
+      setLocationState(prev => ({
+        ...prev,
+        isTracking: true,
+        errorMsg: null,
+      }));
+      
+    } catch (error) {
+      console.error('Ошибка запуска отслеживания:', error);
+      setLocationState(prev => ({
+        ...prev,
+        errorMsg: 'Не удалось запустить отслеживание местоположения',
+        isTracking: false,
+      }));
+    }
+  };
+
+    // Центрирование карты на текущем местоположении
+  const centerOnUserLocation = () => {
+    if (locationState.location) {
+      const newRegion = {
+        latitude: locationState.location.coords.latitude,
+        longitude: locationState.location.coords.longitude,
+        latitudeDelta: 0.0922,
+        longitudeDelta: 0.0421,
+      };
+      setRegion(newRegion);
+      mapRef.current?.animateToRegion(newRegion, 1000);
+    } else {
+      Alert.alert('Ошибка', 'Ваше местоположение недоступно');
     }
   };
 
@@ -238,14 +366,13 @@ const clearMarkers = async () => {
   return (
     <View style={styles.container}>
       <MapView 
+        ref={mapRef}
         style={styles.map} 
-        initialRegion={{
-          latitude: 58.0139,
-          longitude: 56.2211,
-          latitudeDelta: 0.0922,
-          longitudeDelta: 0.0421,
-        }}
+        region={region}
         onPress={handleMapPress}
+        showsUserLocation={true}
+        showsMyLocationButton={false}
+        followsUserLocation={false}
       >
         {markers.map((marker) => (
           <Marker
@@ -280,10 +407,29 @@ const clearMarkers = async () => {
           />
         ))}
       </MapView>
+
+      <TouchableOpacity style={styles.locationButton} onPress={centerOnUserLocation}>
+        <Text style={styles.locationButtonText}>📍</Text>
+      </TouchableOpacity>
       
       <TouchableOpacity style={styles.clearButton} onPress={clearMarkers}>
         <Text style={styles.clearButtonText}>Удалить все маркеры</Text>
       </TouchableOpacity>
+
+      {/* Индикатор статуса GPS */}
+      {locationState.isTracking && locationState.location && (
+        <View style={styles.gpsStatus}>
+          <Text style={styles.gpsStatusText}>
+            🟢 GPS активен
+          </Text>
+        </View>
+      )}
+
+      {locationState.errorMsg && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>{locationState.errorMsg}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -315,4 +461,51 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  locationButton: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 30,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    borderWidth: 1,
+    borderColor: '#DDDDDD',
+  },
+    locationButtonText: {
+    fontSize: 24,
+  },
+  gpsStatus: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  gpsStatusText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+  },
+  errorBanner: {
+    position: 'absolute',
+    bottom: 80,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(255,0,0,0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  errorText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    textAlign: 'center'
+  }
 });
