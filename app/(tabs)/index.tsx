@@ -5,6 +5,7 @@ import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { globalStore } from '../_layout';
 import { useDatabase } from '../contexts/DatabaseContext';
+import { proximityService } from '../notifications';
 
 interface MarkerType {
   id: number;
@@ -52,8 +53,23 @@ export default function App() {
       if (locationSubscription.current) {
         locationSubscription.current.remove();
       }
+      proximityService.stopTracking();
     };
   }, [isReady, isLoading]);
+
+  useEffect(() => {
+    console.log('Маркеры в state изменились:', markers.length);
+    if (markers.length > 0) {
+      const notificationMarkers = markers.map(m => ({
+        id: m.id,
+        latitude: m.coordinate.latitude,
+        longitude: m.coordinate.longitude,
+        name: m.title
+      }));
+      console.log('Отправляем в notificationService:', notificationMarkers);
+      proximityService.setMarkers(notificationMarkers);
+    }
+  }, [markers]);
 
   const loadMarkersFromDatabase = async () => {
     try {
@@ -116,6 +132,7 @@ export default function App() {
       
       // Запускаем отслеживание в реальном времени
       await startLocationUpdates();
+      //await proximityService.startTracking();
       
     } catch (error) {
       console.error('Ошибка получения местоположения:', error);
@@ -145,7 +162,12 @@ export default function App() {
             location: newLocation,
             isTracking: true,
           }));
-          
+              // Проверяем уведомления
+          proximityService.checkProximity(
+            newLocation.coords.latitude,
+            newLocation.coords.longitude
+          );
+          console.log('Новые координаты:', newLocation.coords.latitude, newLocation.coords.longitude);
         }
       );
       
@@ -195,6 +217,12 @@ export default function App() {
         description: `Координаты: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
       };
       updateMarkers([...markers, newMarker]);
+      proximityService.addMarker({ // ДОБАВИТЬ ЭТОТ БЛОК
+        id: markerId,
+        latitude: latitude,
+        longitude: longitude,
+        name: `Метка ${markers.length + 1}`
+      });
     }catch(error){
       Alert.alert('Ошибка, не удалось сохранить маркер');
     }
@@ -235,6 +263,7 @@ export default function App() {
         onPress: async () => {
           try {
             await deleteMarker(markerId);
+            proximityService.removeMarker(markerId);
             const updatedMarkers = markers.filter(m => m.id !== markerId);
             updateMarkers(updatedMarkers);
             Alert.alert('Успех', 'Маркер удален');
@@ -420,7 +449,7 @@ const clearMarkers = async () => {
       {locationState.isTracking && locationState.location && (
         <View style={styles.gpsStatus}>
           <Text style={styles.gpsStatusText}>
-            🟢 GPS активен
+            GPS активен
           </Text>
         </View>
       )}
